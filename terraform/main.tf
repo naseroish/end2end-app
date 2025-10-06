@@ -122,13 +122,22 @@ resource "azurerm_container_app" "apps" {
   }
   
   ingress {
-    allow_insecure_connections = false
+    allow_insecure_connections = true
     external_enabled          = each.value.external_enabled
     target_port              = each.value.target_port
     
     traffic_weight {
       percentage      = 100
       latest_revision = true
+    }
+    
+    # IP Restrictions - Only allow traffic from Application Gateway
+    # When action=Allow is used, all other IPs are implicitly denied
+    ip_security_restriction {
+      name             = "AllowAppGatewayOnly"
+      description      = "Only allow traffic from Application Gateway public IP"
+      action           = "Allow"
+      ip_address_range = azurerm_public_ip.appgw.ip_address
     }
   }
   
