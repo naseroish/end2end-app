@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -118,17 +119,54 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
     }
     
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> handleNoResourceFound(
+            NoResourceFoundException ex, HttpServletRequest request) {
+        
+        String requestURI = request.getRequestURI();
+        
+        // Don't log common static resource requests as errors
+        if (isStaticResourceRequest(requestURI)) {
+            log.debug("Static resource not found: {}", requestURI);
+        } else {
+            log.warn("Resource not found: {}", requestURI);
+        }
+        
+        return ResponseEntity.notFound().build();
+    }
+    
+    private boolean isStaticResourceRequest(String requestURI) {
+        return requestURI.endsWith("favicon.ico") ||
+               requestURI.endsWith(".css") ||
+               requestURI.endsWith(".js") ||
+               requestURI.endsWith(".png") ||
+               requestURI.endsWith(".jpg") ||
+               requestURI.endsWith(".jpeg") ||
+               requestURI.endsWith(".gif") ||
+               requestURI.endsWith(".svg") ||
+               requestURI.endsWith(".ico") ||
+               requestURI.equals("/") ||
+               requestURI.equals("/api");
+    }
+    
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex, HttpServletRequest request) {
         
-        log.error("Unexpected error: ", ex);
+        String requestURI = request.getRequestURI();
+        
+        // Don't log static resource exceptions as errors
+        if (isStaticResourceRequest(requestURI)) {
+            log.debug("Exception for static resource: {} - {}", requestURI, ex.getMessage());
+        } else {
+            log.error("Unexpected error: ", ex);
+        }
         
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 "Internal Server Error",
                 "An unexpected error occurred",
-                request.getRequestURI()
+                requestURI
         );
         
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);

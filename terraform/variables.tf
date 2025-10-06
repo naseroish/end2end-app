@@ -65,6 +65,27 @@ variable "tags" {
   type        = map(string)
 }
 
+# Application Gateway Variables
+variable "app_gateway_name" {
+  description = "Name of the Application Gateway"
+  type        = string
+  default     = "burger-builder-appgw"
+}
+
+variable "app_gateway_sku" {
+  description = "SKU configuration for Application Gateway"
+  type = object({
+    name     = string
+    tier     = string
+    capacity = number
+  })
+  default = {
+    name     = "Standard_v2"
+    tier     = "Standard_v2"
+    capacity = 2
+  }
+}
+
 # Database Variables
 variable "sql_server_name" {
   description = "Name of the SQL Server"

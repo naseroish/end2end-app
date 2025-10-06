@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+environment.env
 
 # IDE
 .vscode/
@@ -22,8 +23,36 @@ yarn-error.log*
 *.tmp
 *.temp
 
+# Terraform
 **/**/.terraform/
 **/**/.terraform.lock.hcl
 **/**/*.tfstate
+**/**/*.tfstate.*
+**/**/*.tfstate.backup
+**/**/terraform.tfvars
+**/**/terraform.tfvars.json
+**/**/.terraformrc
+**/**/terraform.rc
+**/**/crash.log
+**/**/crash.*.log
+**/**/override.tf
+**/**/override.tf.json
+**/**/*_override.tf
+**/**/*_override.tf.json
+
+# Build artifacts
 **/**/target/
+**/**/node_modules/
+**/**/dist/
+**/**/build/
+
+# Docker
+**/**/docker-compose.override.yml
+
+# Secrets and credentials
+**/**/secrets/
+**/**/*.key
+**/**/*.pem
+**/**/*.p12
+**/**/*.pfx
 

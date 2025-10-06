@@ -1,6 +1,7 @@
 
-resource_group_name = "fs-terraform-rg"
-vnet_name           = "fs-terraform-vnet"
+subscription_id = "4421688c-0a8d-4588-8dd0-338c5271d0af"
+resource_group_name = "naser-burger-builder-rg"
+vnet_name           = "naser-burger-builder-vnet"
 location            = "South Africa North"
 
 address_space = ["10.0.0.0/16"]
@@ -12,51 +13,62 @@ subnet = {
   db_subnet = {
     address_space = ["10.0.4.0/24"]
   }
+  appgw_subnet = {
+    address_space = ["10.0.1.0/24"]
+  }
 }
 
 # Container Apps Configuration
-log_analytics_workspace_name = "ecommerce-log-analytics"
-container_app_environment_name = "ecommerce-app-env"
+log_analytics_workspace_name = "naser-burger-builder-log-analytics"
+container_app_environment_name = "naser-burger-builder-app-env"
 
 container_apps = {
   frontend = {
-    image            = "docker.io/uo3d/ecommerce-frontend:latest"  # Docker Hub public image
+    image            = "docker.io/uo3d/burger-builder-frontend:latest"
     cpu              = 0.25
     memory           = "0.5Gi"
-    target_port      = 80  # Nginx default port
+    target_port      = 80  # Nginx serves on port 80
     external_enabled = true
-    min_replicas     = 0  # Allow scale to zero
+    min_replicas     = 1
     max_replicas     = 10
     env_vars = {
-      NODE_ENV = "production"
+      # Frontend will use VITE_API_BASE_URL to connect to backend
+      # This will be set dynamically after backend FQDN is known
     }
   }
   backend = {
-    image            = "docker.io/uo3d/ecommerce-backend:latest"  # Docker Hub public image
+    image            = "docker.io/uo3d/burger-builder-backend:latest"
     cpu              = 0.5
     memory           = "1Gi"
-    target_port      = 3001
-    external_enabled = true  # Make backend external for easier testing
-    min_replicas     = 0  # Allow scale to zero
+    target_port      = 8080  # Spring Boot default port
+    external_enabled = true
+    min_replicas     = 1
     max_replicas     = 10
     env_vars = {
-      PORT = "3001"
-      NODE_ENV = "production"
+      SPRING_PROFILES_ACTIVE = "azure"
+      SERVER_PORT            = "8080"
+      # Database connection will be configured via secrets
+      # CORS will be configured to allow frontend domain
     }
   }
 }
 
 tags = {
-  Environment = "Development"
-  Project     = "ECommerce-Three-Tier"
+  Environment = "Production"
+  Project     = "Burger-Builder"
   Owner       = "Naser"
 }
 
-# Database Configuration
-sql_server_name     = "ecommerce-sql-server"
-sql_database_name   = "ecommerce-db"
-sql_admin_username  = "sqladmin"
-sql_admin_password  = "P@ssw0rd123!"  # In production, use Azure Key Vault or GitHub Secrets
+# Application Gateway Configuration
+app_gateway_name = "naser-burger-builder-appgw"
+app_gateway_sku = {
+  name     = "Standard_v2"
+  tier     = "Standard_v2"
+  capacity = 2
+}
 
-# Azure Configuration
-subscription_id = "80646857-9142-494b-90c5-32fea6acbc41"
+# Database Configuration
+sql_server_name     = "naser-burger-builder-sql"
+sql_database_name   = "burgerbuilder"
+sql_admin_username  = "sqladmin"
+sql_admin_password  = "BurgerAdmin@2025!"  # In production, use Azure Key Vault or GitHub Secrets

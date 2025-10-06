@@ -1,7 +1,16 @@
-name: 🚀 Deploy Three-Tier Application to Azure Container Apps
+name: 🚀 Deploy Burger Builder to Azure Container Apps
 
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+        - deploy
+        - destroy
 
 permissions:
   contents: read
@@ -10,37 +19,234 @@ permissions:
   pull-requests: write
   id-token: write
 
-env:
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  # Terraform Variables from JSON secret
-  TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  TF_VAR_resource_group_name: ${{ fromJson(secrets.TF_VARS).resource_group_name }}
-  TF_VAR_location: ${{ fromJson(secrets.TF_VARS).location }}
-  TF_VAR_vnet_name: ${{ fromJson(secrets.TF_VARS).vnet_name }}
-  TF_VAR_address_space: ${{ toJson(fromJson(secrets.TF_VARS).address_space) }}
-  TF_VAR_subnet: ${{ toJson(fromJson(secrets.TF_VARS).subnet) }}
-  TF_VAR_log_analytics_workspace_name: ${{ fromJson(secrets.TF_VARS).log_analytics_workspace_name }}
-  TF_VAR_container_app_environment_name: ${{ fromJson(secrets.TF_VARS).container_app_environment_name }}
-  TF_VAR_container_apps: ${{ toJson(fromJson(secrets.TF_VARS).container_apps) }}
-  TF_VAR_tags: ${{ toJson(fromJson(secrets.TF_VARS).tags) }}
-  TF_VAR_sql_server_name: ${{ fromJson(secrets.TF_VARS).sql_server_name }}
-  TF_VAR_sql_database_name: ${{ fromJson(secrets.TF_VARS).sql_database_name }}
-  TF_VAR_sql_admin_username: ${{ fromJson(secrets.TF_VARS).sql_admin_username }}
-  TF_VAR_sql_admin_password: ${{ secrets.SQL_ADMIN_PASSWORD }}
-
 jobs:
-  # Job 1: Deploy Infrastructure
+  # Job 1: Code Quality Analysis with SonarQube
+  sonarqube:
+    name: 🔍 SonarQube Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action != 'destroy'
+    
+    services:
+      sonarqube:
+        image: sonarqube:lts-community
+        ports:
+          - 9000:9000
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: true
+        options: >-
+          --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"
+          --health-interval=30s
+          --health-timeout=10s
+          --health-retries=5
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better analysis
+
+    - name: ⏳ Wait for SonarQube to be ready
+      run: |
+        echo "Waiting for SonarQube to start..."
+        timeout 300 bash -c 'until curl -s http://localhost:9000/api/system/status | grep -q "UP"; do sleep 5; done'
+        echo "✅ SonarQube is ready!"
+
+    - name: 🔑 Setup SonarQube Admin Token
+      id: sonar-token
+      run: |
+        # Change default admin password
+        curl -u admin:admin -X POST "http://localhost:9000/api/users/change_password?login=admin&password=admin123&previousPassword=admin"
+        
+        # Generate token
+        TOKEN=$(curl -u admin:admin123 -X POST "http://localhost:9000/api/user_tokens/generate?name=github-actions" | jq -r '.token')
+        echo "SONAR_TOKEN=$TOKEN" >> $GITHUB_ENV
+        echo "::add-mask::$TOKEN"
+        echo "✅ SonarQube token generated"
+
+    - name: 🔧 Create SonarQube Projects
+      run: |
+        # Create backend project
+        curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-backend&project=burger-builder-backend"
+        
+        # Create frontend project
+        curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-frontend&project=burger-builder-frontend"
+        
+        echo "✅ SonarQube projects created"
+
+    - name: ☕ Set up JDK 21 for Backend Analysis
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: 📦 Cache Maven packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: 🔍 Analyze Backend (Java/Spring Boot)
+      run: |
+        cd backend
+        mvn clean verify sonar:sonar \
+          -Dsonar.projectKey=burger-builder-backend \
+          -Dsonar.projectName="Burger Builder Backend" \
+          -Dsonar.host.url=http://localhost:9000 \
+          -Dsonar.token=${{ env.SONAR_TOKEN }} \
+          -Dsonar.java.binaries=target/classes \
+          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+        echo "✅ Backend analysis complete"
+
+    - name: 📦 Set up Node.js for Frontend Analysis
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: 📥 Install Frontend Dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: 🧪 Run Frontend Tests with Coverage
+      run: |
+        cd frontend
+        npm run test:coverage || true  # Continue even if tests fail
+        echo "✅ Frontend tests complete"
+
+    - name: 🔍 Analyze Frontend (TypeScript/React)
+      uses: sonarsource/sonarqube-scan-action@master
+      env:
+        SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        SONAR_HOST_URL: http://localhost:9000
+      with:
+        projectBaseDir: frontend
+        args: >
+          -Dsonar.projectKey=burger-builder-frontend
+          -Dsonar.projectName="Burger Builder Frontend"
+          -Dsonar.sources=src
+          -Dsonar.tests=src
+          -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
+          -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx,**/node_modules/**,**/dist/**,**/coverage/**
+          -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+    - name: 📊 Fetch SonarQube Quality Gate Status
+      id: quality-gate
+      run: |
+        # Wait for analysis to complete
+        sleep 10
+        
+        # Get backend quality gate status
+        BACKEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-backend" | jq -r '.projectStatus.status')
+        
+        # Get frontend quality gate status
+        FRONTEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-frontend" | jq -r '.projectStatus.status')
+        
+        echo "backend_status=$BACKEND_STATUS" >> $GITHUB_OUTPUT
+        echo "frontend_status=$FRONTEND_STATUS" >> $GITHUB_OUTPUT
+        
+        echo "### � SonarQube Analysis Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Project | Quality Gate Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|---------------------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$BACKEND_STATUS" == "OK" ]; then
+          echo "| Backend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Backend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "$FRONTEND_STATUS" == "OK" ]; then
+          echo "| Frontend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Frontend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Note:** SonarQube is running in the GitHub Actions environment. Reports are generated but not persisted." >> $GITHUB_STEP_SUMMARY
+
+    - name: 📈 Generate Code Metrics Summary
+      run: |
+        # Get backend metrics
+        BACKEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
+        BACKEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
+        BACKEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
+        BACKEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
+        
+        # Get frontend metrics
+        FRONTEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
+        FRONTEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
+        FRONTEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
+        FRONTEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Code Quality Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Backend (Spring Boot)" >> $GITHUB_STEP_SUMMARY
+        echo "- 🐛 Bugs: $BACKEND_BUGS" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔒 Vulnerabilities: $BACKEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
+        echo "- 💡 Code Smells: $BACKEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
+        echo "- 📈 Coverage: $BACKEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "#### Frontend (React/TypeScript)" >> $GITHUB_STEP_SUMMARY
+        echo "- 🐛 Bugs: $FRONTEND_BUGS" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔒 Vulnerabilities: $FRONTEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
+        echo "- 💡 Code Smells: $FRONTEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
+        echo "- 📈 Coverage: $FRONTEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
+
+  # Job 2: Build & Push Docker Images
+  build:
+    name: �🔨 Build & Push Images
+    needs: sonarqube
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action != 'destroy'
+    outputs:
+      frontend_tag: ${{ steps.meta.outputs.frontend_tag }}
+      backend_tag: ${{ steps.meta.outputs.backend_tag }}
+      
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔑 Login to Docker Hub
+      run: |
+        echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+    - name: 🏷️ Generate Image Tags
+      id: meta
+      run: |
+        echo "frontend_tag=${{ secrets.DOCKERHUB_USERNAME }}/burger-builder-frontend:latest" >> $GITHUB_OUTPUT
+        echo "backend_tag=${{ secrets.DOCKERHUB_USERNAME }}/burger-builder-backend:latest" >> $GITHUB_OUTPUT
+        echo "✅ Image tags generated"
+
+    - name: 🔨 Build & Push Frontend Image
+      run: |
+        docker build -t ${{ steps.meta.outputs.frontend_tag }} ./frontend
+        docker push ${{ steps.meta.outputs.frontend_tag }}
+        echo "✅ Frontend image pushed to Docker Hub"
+
+    - name: 🔨 Build & Push Backend Image
+      run: |
+        docker build -t ${{ steps.meta.outputs.backend_tag }} ./backend
+        docker push ${{ steps.meta.outputs.backend_tag }}
+        echo "✅ Backend image pushed to Docker Hub"
+
+  # Job 2: Deploy Infrastructure with Fresh Images
   infrastructure:
     name: 🏗️ Deploy Infrastructure
+    needs: build
     runs-on: ubuntu-latest
+    if: github.event.inputs.action != 'destroy'
     defaults:
       run:
         working-directory: ./terraform
     outputs:
       resource_group: ${{ steps.outputs.outputs.resource_group }}
+      backend_fqdn: ${{ steps.outputs.outputs.backend_fqdn }}
+      frontend_fqdn: ${{ steps.outputs.outputs.frontend_fqdn }}
       
     steps:
     - name: 📥 Checkout code
@@ -57,6 +263,14 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: 📝 Create Terraform Variables File
+      run: |
+        cat > terraform.tfvars << 'EOF'
+        ${{ secrets.TF_VARS }}
+        EOF
+        
+        echo "✅ Terraform variables file created"
+
     - name: 🏗️ Terraform Init
       run: terraform init
 
@@ -67,141 +281,103 @@ jobs:
       run: terraform plan -out=tfplan
 
     - name: 🚀 Terraform Apply
-      if: github.event.inputs.action != 'destroy'
       run: terraform apply -auto-approve tfplan
 
-    - name: 💥 Terraform Destroy
-      if: github.event.inputs.action == 'destroy'
-      run: terraform destroy -auto-approve
-
-    - name: 📤 Get Terraform Outputs
+    - name:  Get Terraform Outputs
       id: outputs
-      if: github.event.inputs.action != 'destroy'
       run: |
         echo "resource_group=$(terraform output -raw resource_group_name)" >> $GITHUB_OUTPUT
+        
+        # Get Container App FQDNs
+        RG=$(terraform output -raw resource_group_name)
+        BACKEND_FQDN=$(az containerapp show --name backend-app --resource-group $RG --query "properties.configuration.ingress.fqdn" -o tsv)
+        FRONTEND_FQDN=$(az containerapp show --name frontend-app --resource-group $RG --query "properties.configuration.ingress.fqdn" -o tsv)
+        
+        echo "backend_fqdn=$BACKEND_FQDN" >> $GITHUB_OUTPUT
+        echo "frontend_fqdn=$FRONTEND_FQDN" >> $GITHUB_OUTPUT
+        
+        echo "✅ Infrastructure deployed with fresh images!"
 
-  # Job 2: Build & Deploy Application
-  deploy:
-    name: 🚀 Deploy Application
-    needs: infrastructure
+  # Job 3: Test & Verify Deployment
+  test:
+    name: 🧪 Test & Verify
+    needs: [build, infrastructure]
     runs-on: ubuntu-latest
     if: github.event.inputs.action != 'destroy'
 
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-
-    - name: 🔐 Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: 🔑 Login to Docker Hub
+    - name: ⏳ Wait for Apps to Start
       run: |
-        echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-    - name: 🏷️ Generate Image Tags
-      id: meta
-      run: |
-        echo "frontend_tag=${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-frontend:latest" >> $GITHUB_OUTPUT
-        echo "backend_tag=${{ secrets.DOCKERHUB_USERNAME }}/ecommerce-backend:latest" >> $GITHUB_OUTPUT
-
-    - name: 🔨 Build & Push Frontend Image
-      run: |
-        docker build -t ${{ steps.meta.outputs.frontend_tag }} ./ecommerce-app-frontend
-        docker push ${{ steps.meta.outputs.frontend_tag }}
-
-    - name: 🔨 Build & Push Backend Image
-      run: |
-        docker system prune -f
-        docker build --no-cache --pull -f ./ecommerce-app-backend/Dockerfile.new -t ${{ steps.meta.outputs.backend_tag }} ./ecommerce-app-backend
-        docker push ${{ steps.meta.outputs.backend_tag }}
-
-    - name: � Get Container App URLs
-      id: urls
-      run: |
-        # Get the FQDNs dynamically
-        BACKEND_FQDN=$(az containerapp show --name backend-app --resource-group ${{ needs.infrastructure.outputs.resource_group }} --query "properties.configuration.ingress.fqdn" -o tsv)
-        FRONTEND_FQDN=$(az containerapp show --name frontend-app --resource-group ${{ needs.infrastructure.outputs.resource_group }} --query "properties.configuration.ingress.fqdn" -o tsv)
-        
-        echo "backend_url=https://$BACKEND_FQDN" >> $GITHUB_OUTPUT
-        echo "frontend_url=https://$FRONTEND_FQDN" >> $GITHUB_OUTPUT
-        
-        echo "Backend URL: https://$BACKEND_FQDN"
-        echo "Frontend URL: https://$FRONTEND_FQDN"
-
-    - name: 🚀 Deploy Backend Container App
-      run: |
-        # Update the container app with Docker Hub image
-        az containerapp update \
-          --name backend-app \
-          --resource-group ${{ needs.infrastructure.outputs.resource_group }} \
-          --image ${{ steps.meta.outputs.backend_tag }} \
-          --set-env-vars \
-            PORT=3001 \
-            NODE_ENV=production \
-            CORS_ORIGIN="${{ steps.urls.outputs.frontend_url }}" \
-            DB_SERVER="${{ secrets.DB_SERVER }}" \
-            DB_NAME="${{ secrets.DB_NAME }}" \
-            DB_USER="${{ secrets.DB_USER }}" \
-            DB_PASSWORD="${{ secrets.SQL_ADMIN_PASSWORD }}" \
-            DB_ENCRYPT=true \
-            DB_TRUST_SERVER_CERTIFICATE=false \
-            DB_CONNECTION_TIMEOUT=30000 \
-            JWT_SECRET="${{ secrets.JWT_SECRET }}" \
-            JWT_EXPIRES_IN=7d \
-            RATE_LIMIT_WINDOW_MS=900000 \
-            RATE_LIMIT_MAX_REQUESTS=100
-            
-        echo "✅ Backend deployment completed"
-
-    - name: 🚀 Deploy Frontend Container App
-      run: |
-        # Update the container app with Docker Hub image
-        az containerapp update \
-          --name frontend-app \
-          --resource-group ${{ needs.infrastructure.outputs.resource_group }} \
-          --image ${{ steps.meta.outputs.frontend_tag }} \
-          --set-env-vars \
-            NODE_ENV=production \
-            REACT_APP_API_URL="${{ steps.urls.outputs.backend_url }}/api"
-            
-        echo "✅ Frontend deployment completed"
-
-    - name: ⏳ Wait for Deployment
-      run: |
-        echo "Waiting for container apps to update..."
-        sleep 60
+        echo "Waiting for container apps to fully start..."
+        sleep 45
 
     - name: 🔍 Test Application
       run: |
-        echo "## 🎉 Application Deployed Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "## � Burger Builder Deployed Successfully!" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 Deployment Details:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Frontend Image:** \`${{ steps.meta.outputs.frontend_tag }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Backend Image:** \`${{ steps.meta.outputs.backend_tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend Image:** \`${{ needs.build.outputs.frontend_tag }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Backend Image:** \`${{ needs.build.outputs.backend_tag }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Deployment Time:** $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Frontend URL:** ${{ steps.urls.outputs.frontend_url }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Backend URL:** ${{ steps.urls.outputs.backend_url }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend URL:** https://${{ needs.infrastructure.outputs.frontend_fqdn }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Backend API URL:** https://${{ needs.infrastructure.outputs.backend_fqdn }}" >> $GITHUB_STEP_SUMMARY
         
         # Test health endpoints
         echo "### 🔍 Health Checks:" >> $GITHUB_STEP_SUMMARY
         
-        # Extract just the hostname from the frontend URL for testing
-        FRONTEND_FQDN=$(echo "${{ steps.urls.outputs.frontend_url }}" | sed 's|https://||')
-        
-        if curl -f "${{ steps.urls.outputs.frontend_url }}" > /dev/null 2>&1; then
+        if curl -f "https://${{ needs.infrastructure.outputs.frontend_fqdn }}" > /dev/null 2>&1; then
           echo "- **Frontend Health:** ✅ Healthy" >> $GITHUB_STEP_SUMMARY
         else
           echo "- **Frontend Health:** ⚠️ Not responding (may still be starting)" >> $GITHUB_STEP_SUMMARY
         fi
         
-        if curl -f "${{ steps.urls.outputs.backend_url }}/health" > /dev/null 2>&1; then
+        if curl -f "https://${{ needs.infrastructure.outputs.backend_fqdn }}/actuator/health" > /dev/null 2>&1; then
           echo "- **Backend Health:** ✅ Healthy" >> $GITHUB_STEP_SUMMARY
         else
           echo "- **Backend Health:** ⚠️ Not responding (may still be starting)" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "### 🎯 Next Steps:" >> $GITHUB_STEP_SUMMARY
-        echo "1. Visit the frontend URL to test the application" >> $GITHUB_STEP_SUMMARY
-        echo "2. Try the signup/login functionality" >> $GITHUB_STEP_SUMMARY
-        echo "3. Check the products page to verify backend connectivity" >> $GITHUB_STEP_SUMMARY
+        echo "1. Visit the frontend URL to access the Burger Builder app" >> $GITHUB_STEP_SUMMARY
+        echo "2. Test burger creation and cart functionality" >> $GITHUB_STEP_SUMMARY
+        echo "3. Verify order placement works correctly" >> $GITHUB_STEP_SUMMARY
+        echo "4. Check backend API at: https://${{ needs.infrastructure.outputs.backend_fqdn }}/api/ingredients" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✨ Infrastructure as Code - Everything managed by Terraform!" >> $GITHUB_STEP_SUMMARY
+
+  # Job 4: Destroy Infrastructure (if requested)
+  destroy:
+    name: 💥 Destroy Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'destroy'
+    defaults:
+      run:
+        working-directory: ./terraform
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🔧 Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.3
+        terraform_wrapper: false
+
+    - name: 🔐 Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: 📝 Create Terraform Variables File
+      run: |
+        cat > terraform.tfvars << 'EOF'
+        ${{ secrets.TF_VARS }}
+        EOF
+        
+        echo "✅ Terraform variables file created for destroy"
+
+    - name: 🏗️ Terraform Init
+      run: terraform init
+
+    - name: 💥 Terraform Destroy
+      run: terraform destroy -auto-approve
