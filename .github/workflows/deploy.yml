@@ -32,12 +32,13 @@ jobs:
         ports:
           - 9000:9000
         env:
-          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: true
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
         options: >-
           --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"
           --health-interval=30s
           --health-timeout=10s
-          --health-retries=5
+          --health-retries=15
+          --health-start-period=180s
     
     steps:
     - name: 📥 Checkout code
