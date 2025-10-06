@@ -21,182 +21,182 @@ permissions:
 
 jobs:
   # Job 1: Code Quality Analysis with SonarQube
-  sonarqube:
-    name: 🔍 SonarQube Analysis
-    runs-on: ubuntu-latest
-    if: github.event.inputs.action != 'destroy'
+  # sonarqube:
+  #   name: 🔍 SonarQube Analysis
+  #   runs-on: ubuntu-latest
+  #   if: github.event.inputs.action != 'destroy'
     
-    services:
-      sonarqube:
-        image: sonarqube:lts-community
-        ports:
-          - 9000:9000
-        env:
-          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
-        options: >-
-          --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"
-          --health-interval=30s
-          --health-timeout=10s
-          --health-retries=15
-          --health-start-period=180s
+  #   services:
+  #     sonarqube:
+  #       image: sonarqube:lts-community
+  #       ports:
+  #         - 9000:9000
+  #       env:
+  #         SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
+  #       options: >-
+  #         --health-cmd="wget --no-verbose --tries=1 --spider http://localhost:9000/api/system/status || exit 1"
+  #         --health-interval=30s
+  #         --health-timeout=10s
+  #         --health-retries=15
+  #         --health-start-period=180s
     
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Full history for better analysis
+  #   steps:
+  #   - name: 📥 Checkout code
+  #     uses: actions/checkout@v4
+  #     with:
+  #       fetch-depth: 0  # Full history for better analysis
 
-    - name: ⏳ Wait for SonarQube to be ready
-      run: |
-        echo "Waiting for SonarQube to start..."
-        timeout 300 bash -c 'until curl -s http://localhost:9000/api/system/status | grep -q "UP"; do sleep 5; done'
-        echo "✅ SonarQube is ready!"
+  #   - name: ⏳ Wait for SonarQube to be ready
+  #     run: |
+  #       echo "Waiting for SonarQube to start..."
+  #       timeout 300 bash -c 'until curl -s http://localhost:9000/api/system/status | grep -q "UP"; do sleep 5; done'
+  #       echo "✅ SonarQube is ready!"
 
-    - name: 🔑 Setup SonarQube Admin Token
-      id: sonar-token
-      run: |
-        # Change default admin password
-        curl -u admin:admin -X POST "http://localhost:9000/api/users/change_password?login=admin&password=admin123&previousPassword=admin"
+  #   - name: 🔑 Setup SonarQube Admin Token
+  #     id: sonar-token
+  #     run: |
+  #       # Change default admin password
+  #       curl -u admin:admin -X POST "http://localhost:9000/api/users/change_password?login=admin&password=admin123&previousPassword=admin"
         
-        # Generate token
-        TOKEN=$(curl -u admin:admin123 -X POST "http://localhost:9000/api/user_tokens/generate?name=github-actions" | jq -r '.token')
-        echo "SONAR_TOKEN=$TOKEN" >> $GITHUB_ENV
-        echo "::add-mask::$TOKEN"
-        echo "✅ SonarQube token generated"
+  #       # Generate token
+  #       TOKEN=$(curl -u admin:admin123 -X POST "http://localhost:9000/api/user_tokens/generate?name=github-actions" | jq -r '.token')
+  #       echo "SONAR_TOKEN=$TOKEN" >> $GITHUB_ENV
+  #       echo "::add-mask::$TOKEN"
+  #       echo "✅ SonarQube token generated"
 
-    - name: 🔧 Create SonarQube Projects
-      run: |
-        # Create backend project
-        curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-backend&project=burger-builder-backend"
+  #   - name: 🔧 Create SonarQube Projects
+  #     run: |
+  #       # Create backend project
+  #       curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-backend&project=burger-builder-backend"
         
-        # Create frontend project
-        curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-frontend&project=burger-builder-frontend"
+  #       # Create frontend project
+  #       curl -u admin:admin123 -X POST "http://localhost:9000/api/projects/create?name=burger-builder-frontend&project=burger-builder-frontend"
         
-        echo "✅ SonarQube projects created"
+  #       echo "✅ SonarQube projects created"
 
-    - name: ☕ Set up JDK 21 for Backend Analysis
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
+  #   - name: ☕ Set up JDK 21 for Backend Analysis
+  #     uses: actions/setup-java@v4
+  #     with:
+  #       java-version: '21'
+  #       distribution: 'temurin'
 
-    - name: 📦 Cache Maven packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
+  #   - name: 📦 Cache Maven packages
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: ~/.m2
+  #       key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+  #       restore-keys: ${{ runner.os }}-m2
 
-    - name: 🔍 Analyze Backend (Java/Spring Boot)
-      run: |
-        cd backend
-        mvn clean verify sonar:sonar \
-          -Dsonar.projectKey=burger-builder-backend \
-          -Dsonar.projectName="Burger Builder Backend" \
-          -Dsonar.host.url=http://localhost:9000 \
-          -Dsonar.token=${{ env.SONAR_TOKEN }} \
-          -Dsonar.java.binaries=target/classes \
-          -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-        echo "✅ Backend analysis complete"
+  #   - name: 🔍 Analyze Backend (Java/Spring Boot)
+  #     run: |
+  #       cd backend
+  #       mvn clean verify sonar:sonar \
+  #         -Dsonar.projectKey=burger-builder-backend \
+  #         -Dsonar.projectName="Burger Builder Backend" \
+  #         -Dsonar.host.url=http://localhost:9000 \
+  #         -Dsonar.token=${{ env.SONAR_TOKEN }} \
+  #         -Dsonar.java.binaries=target/classes \
+  #         -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+  #       echo "✅ Backend analysis complete"
 
-    - name: 📦 Set up Node.js for Frontend Analysis
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+  #   - name: 📦 Set up Node.js for Frontend Analysis
+  #     uses: actions/setup-node@v4
+  #     with:
+  #       node-version: '20'
+  #       cache: 'npm'
+  #       cache-dependency-path: frontend/package-lock.json
 
-    - name: 📥 Install Frontend Dependencies
-      run: |
-        cd frontend
-        npm ci
+  #   - name: 📥 Install Frontend Dependencies
+  #     run: |
+  #       cd frontend
+  #       npm ci
 
-    - name: 🧪 Run Frontend Tests with Coverage
-      run: |
-        cd frontend
-        npm run test:coverage || true  # Continue even if tests fail
-        echo "✅ Frontend tests complete"
+  #   - name: 🧪 Run Frontend Tests with Coverage
+  #     run: |
+  #       cd frontend
+  #       npm run test:coverage || true  # Continue even if tests fail
+  #       echo "✅ Frontend tests complete"
 
-    - name: 🔍 Analyze Frontend (TypeScript/React)
-      uses: sonarsource/sonarqube-scan-action@master
-      env:
-        SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
-        SONAR_HOST_URL: http://localhost:9000
-      with:
-        projectBaseDir: frontend
-        args: >
-          -Dsonar.projectKey=burger-builder-frontend
-          -Dsonar.projectName="Burger Builder Frontend"
-          -Dsonar.sources=src
-          -Dsonar.tests=src
-          -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
-          -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx,**/node_modules/**,**/dist/**,**/coverage/**
-          -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
-          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+  #   - name: 🔍 Analyze Frontend (TypeScript/React)
+  #     uses: sonarsource/sonarqube-scan-action@master
+  #     env:
+  #       SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+  #       SONAR_HOST_URL: http://localhost:9000
+  #     with:
+  #       projectBaseDir: frontend
+  #       args: >
+  #         -Dsonar.projectKey=burger-builder-frontend
+  #         -Dsonar.projectName="Burger Builder Frontend"
+  #         -Dsonar.sources=src
+  #         -Dsonar.tests=src
+  #         -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
+  #         -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx,**/node_modules/**,**/dist/**,**/coverage/**
+  #         -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+  #         -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
-    - name: 📊 Fetch SonarQube Quality Gate Status
-      id: quality-gate
-      run: |
-        # Wait for analysis to complete
-        sleep 10
+  #   - name: 📊 Fetch SonarQube Quality Gate Status
+  #     id: quality-gate
+  #     run: |
+  #       # Wait for analysis to complete
+  #       sleep 10
         
-        # Get backend quality gate status
-        BACKEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-backend" | jq -r '.projectStatus.status')
+  #       # Get backend quality gate status
+  #       BACKEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-backend" | jq -r '.projectStatus.status')
         
-        # Get frontend quality gate status
-        FRONTEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-frontend" | jq -r '.projectStatus.status')
+  #       # Get frontend quality gate status
+  #       FRONTEND_STATUS=$(curl -s -u admin:admin123 "http://localhost:9000/api/qualitygates/project_status?projectKey=burger-builder-frontend" | jq -r '.projectStatus.status')
         
-        echo "backend_status=$BACKEND_STATUS" >> $GITHUB_OUTPUT
-        echo "frontend_status=$FRONTEND_STATUS" >> $GITHUB_OUTPUT
+  #       echo "backend_status=$BACKEND_STATUS" >> $GITHUB_OUTPUT
+  #       echo "frontend_status=$FRONTEND_STATUS" >> $GITHUB_OUTPUT
         
-        echo "### � SonarQube Analysis Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Project | Quality Gate Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|---------|---------------------|" >> $GITHUB_STEP_SUMMARY
+  #       echo "### � SonarQube Analysis Results" >> $GITHUB_STEP_SUMMARY
+  #       echo "" >> $GITHUB_STEP_SUMMARY
+  #       echo "| Project | Quality Gate Status |" >> $GITHUB_STEP_SUMMARY
+  #       echo "|---------|---------------------|" >> $GITHUB_STEP_SUMMARY
         
-        if [ "$BACKEND_STATUS" == "OK" ]; then
-          echo "| Backend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Backend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
-        fi
+  #       if [ "$BACKEND_STATUS" == "OK" ]; then
+  #         echo "| Backend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
+  #       else
+  #         echo "| Backend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+  #       fi
         
-        if [ "$FRONTEND_STATUS" == "OK" ]; then
-          echo "| Frontend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| Frontend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
-        fi
+  #       if [ "$FRONTEND_STATUS" == "OK" ]; then
+  #         echo "| Frontend | ✅ PASSED |" >> $GITHUB_STEP_SUMMARY
+  #       else
+  #         echo "| Frontend | ❌ FAILED |" >> $GITHUB_STEP_SUMMARY
+  #       fi
         
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Note:** SonarQube is running in the GitHub Actions environment. Reports are generated but not persisted." >> $GITHUB_STEP_SUMMARY
+  #       echo "" >> $GITHUB_STEP_SUMMARY
+  #       echo "**Note:** SonarQube is running in the GitHub Actions environment. Reports are generated but not persisted." >> $GITHUB_STEP_SUMMARY
 
-    - name: 📈 Generate Code Metrics Summary
-      run: |
-        # Get backend metrics
-        BACKEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
-        BACKEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
-        BACKEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
-        BACKEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
+  #   - name: 📈 Generate Code Metrics Summary
+  #     run: |
+  #       # Get backend metrics
+  #       BACKEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
+  #       BACKEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
+  #       BACKEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
+  #       BACKEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-backend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
         
-        # Get frontend metrics
-        FRONTEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
-        FRONTEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
-        FRONTEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
-        FRONTEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
+  #       # Get frontend metrics
+  #       FRONTEND_BUGS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=bugs" | jq -r '.component.measures[0].value // "0"')
+  #       FRONTEND_VULNERABILITIES=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=vulnerabilities" | jq -r '.component.measures[0].value // "0"')
+  #       FRONTEND_CODE_SMELLS=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=code_smells" | jq -r '.component.measures[0].value // "0"')
+  #       FRONTEND_COVERAGE=$(curl -s -u admin:admin123 "http://localhost:9000/api/measures/component?component=burger-builder-frontend&metricKeys=coverage" | jq -r '.component.measures[0].value // "N/A"')
         
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Code Quality Metrics" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "#### Backend (Spring Boot)" >> $GITHUB_STEP_SUMMARY
-        echo "- 🐛 Bugs: $BACKEND_BUGS" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔒 Vulnerabilities: $BACKEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
-        echo "- 💡 Code Smells: $BACKEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
-        echo "- 📈 Coverage: $BACKEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "#### Frontend (React/TypeScript)" >> $GITHUB_STEP_SUMMARY
-        echo "- 🐛 Bugs: $FRONTEND_BUGS" >> $GITHUB_STEP_SUMMARY
-        echo "- 🔒 Vulnerabilities: $FRONTEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
-        echo "- 💡 Code Smells: $FRONTEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
-        echo "- 📈 Coverage: $FRONTEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
+  #       echo "" >> $GITHUB_STEP_SUMMARY
+  #       echo "### 📊 Code Quality Metrics" >> $GITHUB_STEP_SUMMARY
+  #       echo "" >> $GITHUB_STEP_SUMMARY
+  #       echo "#### Backend (Spring Boot)" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 🐛 Bugs: $BACKEND_BUGS" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 🔒 Vulnerabilities: $BACKEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 💡 Code Smells: $BACKEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 📈 Coverage: $BACKEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
+  #       echo "" >> $GITHUB_STEP_SUMMARY
+  #       echo "#### Frontend (React/TypeScript)" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 🐛 Bugs: $FRONTEND_BUGS" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 🔒 Vulnerabilities: $FRONTEND_VULNERABILITIES" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 💡 Code Smells: $FRONTEND_CODE_SMELLS" >> $GITHUB_STEP_SUMMARY
+  #       echo "- 📈 Coverage: $FRONTEND_COVERAGE%" >> $GITHUB_STEP_SUMMARY
 
   # Job 2: Build & Push Docker Images
   build:
