@@ -116,22 +116,36 @@ module "container_apps" {
   target_port                = each.value.target_port
   allow_insecure_connections = true
 
-  # Merge base env vars with backend-specific DB configs
+  # Merge base env vars with backend-specific DB configs and CORS
   env_vars = merge(
     each.value.env_vars,
     each.key == "backend" ? {
-      DB_HOST     = module.sql_server.server_private_fqdn
-      DB_PORT     = "1433"
-      DB_NAME     = module.sql_server.database_name
-      DB_USERNAME = var.sql_admin_username
-      DB_PASSWORD = var.sql_admin_password
-      DB_DRIVER   = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+      DB_HOST              = module.sql_server.server_private_fqdn
+      DB_PORT              = "1433"
+      DB_NAME              = module.sql_server.database_name
+      DB_USERNAME          = var.sql_admin_username
+      DB_PASSWORD          = var.sql_admin_password
+      DB_DRIVER            = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+      CORS_ALLOWED_ORIGINS = "http://${module.application_gateway.public_ip_address},https://${module.application_gateway.public_ip_address}"
+    } : {},
+    each.key == "frontend" ? {
+      VITE_API_BASE_URL = "http://${module.application_gateway.public_ip_address}"
     } : {}
   )
 
+  # IP Security Restrictions - Only allow traffic from Application Gateway
+  ip_security_restrictions = [
+    {
+      name             = "AllowAppGatewayOnly"
+      description      = "Only allow traffic from Application Gateway public IP"
+      action           = "Allow"
+      ip_address_range = module.application_gateway.public_ip_address
+    }
+  ]
+
   tags = var.tags
 
-  depends_on = [module.sql_server]
+  depends_on = [module.sql_server, module.application_gateway]
 }
 
 # ============================================
