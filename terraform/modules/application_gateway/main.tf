@@ -1,14 +1,4 @@
-# Public IP for Application Gateway
-resource "azurerm_public_ip" "appgw" {
-  name                = "${var.name}-pip"
-  resource_group_name = var.resource_group_name
-  location            = var.location
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = var.tags
-}
-
-# Application Gateway
+# Application Gateway (Public IP is now passed as a variable)
 resource "azurerm_application_gateway" "main" {
   name                = var.name
   resource_group_name = var.resource_group_name
@@ -39,7 +29,7 @@ resource "azurerm_application_gateway" "main" {
 
   frontend_ip_configuration {
     name                 = "${var.name}-frontend-ip"
-    public_ip_address_id = azurerm_public_ip.appgw.id
+    public_ip_address_id = var.public_ip_id
   }
 
   # Backend Address Pools

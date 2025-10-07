@@ -92,6 +92,20 @@ module "container_app_environment" {
 }
 
 # ============================================
+# PUBLIC IP FOR APPLICATION GATEWAY
+# (Created early to avoid circular dependency)
+# ============================================
+
+resource "azurerm_public_ip" "appgw" {
+  name                = "${var.app_gateway_name}-pip"
+  resource_group_name = module.resource_group.resource_group.name
+  location            = var.location
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = var.tags
+}
+
+# ============================================
 # CONTAINER APPS MODULES (Using for_each)
 # ============================================
 
@@ -114,7 +128,7 @@ module "container_apps" {
   ingress_enabled            = true
   external_enabled           = each.value.external_enabled
   target_port                = each.value.target_port
-  allow_insecure_connections = true
+  allow_insecure_connections = false
 
   # Merge base env vars with backend-specific DB configs and CORS
   env_vars = merge(
@@ -126,26 +140,30 @@ module "container_apps" {
       DB_USERNAME          = var.sql_admin_username
       DB_PASSWORD          = var.sql_admin_password
       DB_DRIVER            = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
-      CORS_ALLOWED_ORIGINS = "http://${module.application_gateway.public_ip_address},https://${module.application_gateway.public_ip_address}"
+      CORS_ALLOWED_ORIGINS = "http://${azurerm_public_ip.appgw.ip_address}"
     } : {},
     each.key == "frontend" ? {
-      VITE_API_BASE_URL = "http://${module.application_gateway.public_ip_address}"
+      VITE_API_BASE_URL = "http://${azurerm_public_ip.appgw.ip_address}"
     } : {}
   )
 
   # IP Security Restrictions - Only allow traffic from Application Gateway
+  # This prevents direct access to Container App FQDNs, forcing all traffic through App Gateway
   ip_security_restrictions = [
     {
       name             = "AllowAppGatewayOnly"
       description      = "Only allow traffic from Application Gateway public IP"
       action           = "Allow"
-      ip_address_range = "${module.application_gateway.public_ip_address}/32"
+      ip_address_range = "${azurerm_public_ip.appgw.ip_address}/32"
     }
   ]
 
   tags = var.tags
 
-  depends_on = [module.sql_server]  # Ensure DB is ready before backend app
+  depends_on = [
+    module.sql_server,      # Ensure DB is ready before backend app
+    azurerm_public_ip.appgw # Ensure public IP is created before container apps
+  ]
 }
 
 # ============================================
@@ -159,6 +177,8 @@ module "application_gateway" {
   location            = var.location
   subnet_id           = module.subnets["appgw_subnet"].subnet.id
   sku                 = var.app_gateway_sku
+  
+  public_ip_id = azurerm_public_ip.appgw.id
   
   frontend_fqdn = module.container_apps["frontend"].fqdn
   backend_fqdn  = module.container_apps["backend"].fqdn

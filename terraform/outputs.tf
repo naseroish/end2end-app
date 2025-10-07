@@ -4,22 +4,22 @@
 
 output "app_gateway_public_ip" {
   description = "Public IP address - USE THIS TO ACCESS YOUR APP"
-  value       = module.application_gateway.public_ip_address
+  value       = azurerm_public_ip.appgw.ip_address
 }
 
 output "frontend_url" {
   description = "Frontend application URL"
-  value       = module.application_gateway.frontend_url
+  value       = "http://${azurerm_public_ip.appgw.ip_address}"
 }
 
 output "backend_api_url" {
   description = "Backend API URL"
-  value       = module.application_gateway.backend_url
+  value       = "http://${azurerm_public_ip.appgw.ip_address}/api"
 }
 
 output "health_check_url" {
   description = "Backend health check URL"
-  value       = module.application_gateway.health_url
+  value       = "http://${azurerm_public_ip.appgw.ip_address}/actuator/health"
 }
 
 # ============================================
@@ -56,9 +56,9 @@ output "access_instructions" {
   
   🎉 Deployment Complete! Access your Burger Builder application:
   
-  📱 Frontend: ${module.application_gateway.frontend_url}
-  🔌 Backend API: ${module.application_gateway.backend_url}
-  ❤️  Health Check: ${module.application_gateway.health_url}
+  📱 Frontend: http://${azurerm_public_ip.appgw.ip_address}
+  🔌 Backend API: http://${azurerm_public_ip.appgw.ip_address}/api
+  ❤️  Health Check: http://${azurerm_public_ip.appgw.ip_address}/actuator/health
   
   All traffic goes through Application Gateway (Container Apps are not directly accessible).
   
