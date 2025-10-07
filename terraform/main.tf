@@ -199,7 +199,7 @@ module "application_gateway" {
 
 module "storage_account" {
   source              = "./modules/storage_account"
-  name                = "naser-tfstate"
+  name                = "nasertfstate"
   resource_group_name = module.resource_group.resource_group.name
   location            = var.location
   container_name      = "naser-tfstate-container"
