@@ -145,7 +145,7 @@ module "container_apps" {
 
   tags = var.tags
 
-  depends_on = [module.sql_server, module.application_gateway]
+  depends_on = [module.sql_server]  # Ensure DB is ready before backend app
 }
 
 # ============================================
