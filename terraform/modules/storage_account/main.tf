@@ -1,13 +1,6 @@
-# Random suffix for globally unique storage account name
-resource "random_string" "suffix" {
-  length  = 8
-  special = false
-  upper   = false
-}
-
 # Storage Account
 resource "azurerm_storage_account" "main" {
-  name                     = "${var.name}${random_string.suffix.result}"
+  name                     = var.name
   resource_group_name      = var.resource_group_name
   location                 = var.location
   account_tier             = var.account_tier

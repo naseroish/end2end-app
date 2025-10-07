@@ -1,13 +1,6 @@
-# Random suffix for globally unique SQL Server name
-resource "random_string" "suffix" {
-  length  = 8
-  special = false
-  upper   = false
-}
-
 # Azure SQL Server
 resource "azurerm_mssql_server" "main" {
-  name                          = "${var.server_name}-${random_string.suffix.result}"
+  name                          = var.server_name
   resource_group_name           = var.resource_group_name
   location                      = var.location
   version                       = var.server_version
@@ -26,7 +19,7 @@ resource "azurerm_mssql_database" "main" {
   license_type = var.license_type
   max_size_gb  = var.max_size_gb
   sku_name     = var.sku_name
-  
+
   tags = var.tags
 }
 
@@ -49,13 +42,13 @@ resource "azurerm_private_dns_zone_virtual_network_link" "sql" {
 
 # Private Endpoint for SQL Server
 resource "azurerm_private_endpoint" "sql" {
-  name                = "${var.server_name}-${random_string.suffix.result}-private-endpoint"
+  name                = "${var.server_name}-private-endpoint"
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = var.subnet_id
 
   private_service_connection {
-    name                           = "${var.server_name}-${random_string.suffix.result}-privateserviceconnection"
+    name                           = "${var.server_name}-privateserviceconnection"
     private_connection_resource_id = azurerm_mssql_server.main.id
     subresource_names              = ["sqlServer"]
     is_manual_connection           = false

@@ -1,0 +1,133 @@
+name: 🔍 SonarCloud Code Quality Analysis
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Backend Analysis (Java/Spring Boot)
+  backend-analysis:
+    name: 📊 Backend Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+      
+      - name: ☕ Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+      
+      - name: 🧪 Run Tests & Generate Coverage
+        run: mvn clean verify
+      
+      - name: 🔍 SonarCloud Scan (Auto-creates project on first run)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.projectKey=naseroish_end2end-app-backend \
+            -Dsonar.projectName="Burger Builder Backend" \
+            -Dsonar.organization=naseroish \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.sources=src/main/java \
+            -Dsonar.tests=src/test/java \
+            -Dsonar.java.binaries=target/classes \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -Dsonar.newCode.referenceBranch=master
+      
+      - name: 📈 Upload Coverage Report (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/target/site/jacoco/
+          retention-days: 7
+
+  # Frontend Analysis (React/TypeScript)
+  frontend-analysis:
+    name: 📊 Frontend Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+      
+      - name: 🔧 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: 📦 Install Dependencies
+        run: npm ci
+      
+      - name: 🧪 Run Tests & Generate Coverage
+        run: npm run test:coverage
+      
+      - name: 🔍 SonarCloud Scan (Auto-creates project on first run)
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: frontend/
+          args: >
+            -Dsonar.projectKey=naseroish_end2end-app-frontend
+            -Dsonar.projectName="Burger Builder Frontend"
+            -Dsonar.organization=naseroish
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=**/*.test.ts,**/*.test.tsx
+            -Dsonar.exclusions=**/*.test.ts,**/*.test.tsx,**/test/**,**/*.config.ts,**/*.config.js
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.typescript.tsconfigPath=tsconfig.json
+            -Dsonar.newCode.referenceBranch=master
+      
+      - name: 📈 Upload Coverage Report (Artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          retention-days: 7
+
+  # Summary Job
+  summary:
+    name: 📋 Analysis Summary
+    needs: [backend-analysis, frontend-analysis]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: 📊 Create Summary
+        run: |
+          echo "## 🔍 SonarCloud Analysis Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Results:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Backend Analysis:** ${{ needs.backend-analysis.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend Analysis:** ${{ needs.frontend-analysis.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 View Reports:" >> $GITHUB_STEP_SUMMARY
+          echo "- [Backend on SonarCloud](https://sonarcloud.io/project/overview?id=naseroish_end2end-app-backend)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Frontend on SonarCloud](https://sonarcloud.io/project/overview?id=naseroish_end2end-app-frontend)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📈 Coverage Reports:" >> $GITHUB_STEP_SUMMARY
+          echo "- Coverage reports uploaded as workflow artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Check the **Artifacts** section at the bottom of this workflow run" >> $GITHUB_STEP_SUMMARY
