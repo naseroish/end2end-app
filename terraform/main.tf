@@ -139,7 +139,7 @@ module "container_apps" {
       name             = "AllowAppGatewayOnly"
       description      = "Only allow traffic from Application Gateway public IP"
       action           = "Allow"
-      ip_address_range = module.application_gateway.public_ip_address
+      ip_address_range = "${module.application_gateway.public_ip_address}/32"
     }
   ]
 
