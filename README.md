@@ -1,6 +1,12 @@
 # 🍔 Burger Builder - Full Stack Application
 
-A production-ready full-stack applica### Infrastructure Created:
+A production-ready full-stack application for building and ordering custom burgers with automated CI/CD deployment to Azure.
+
+**Tech Stack**: React 19 + TypeScript | Spring Boot 3.2 + Java 21 | Azure Container Apps | Terraform | GitHub Actions
+
+---
+
+## 🏗️ Infrastructure Created
 - Virtual Network with 3 subnets
 - Container App Environment with auto-scaling (1-10 instances)
 - Application Gateway with path-based routing
@@ -9,9 +15,7 @@ A production-ready full-stack applica### Infrastructure Created:
 
 **Resource Naming**: All resources prefixed with `naser-` to avoid conflicts in shared subscriptions
 
-**Monthly Cost**: ~$160-180 USD building and ordering custom burgers with automated CI/CD deployment to Azure.
-
-**Tech Stack**: React 19 + TypeScript | Spring Boot 3.2 + Java 21 | Azure Container Apps | Terraform | GitHub Actions
+**Monthly Cost**: ~$160-180 USD
 
 ---
 
@@ -44,16 +48,23 @@ az ad sp create-for-rbac \
 
 Go to your repo: **Settings** → **Secrets and variables** → **Actions**
 
-Add these 4 secrets:
+Add these 5 secrets:
 
 | Secret Name | Value | Where to Get |
 |-------------|-------|--------------|
 | `AZURE_CREDENTIALS` | Full JSON from step 1 | Azure Service Principal |
 | `DOCKERHUB_USERNAME` | Your Docker Hub username | Docker Hub profile |
 | `DOCKERHUB_TOKEN` | Token from step 2 | Docker Hub security |
+| `SONAR_TOKEN` | SonarCloud token | SonarCloud account (see below) |
 | `TF_VARS` | Copy from `terraform/terraform.tfvars` | Local file (plain text, with password) |
 
 **Important**: `TF_VARS` must be **plain text** (not JSON). Copy the entire content of `terraform/terraform.tfvars` including the SQL password.
+
+#### 🔍 Getting SonarCloud Token:
+1. Sign up at https://sonarcloud.io (free for public repos)
+2. Go to **My Account** → **Security** → **Generate Token**
+3. Name: `burger-builder-github`, Type: User Token
+4. Copy the token and add it to GitHub Secrets as `SONAR_TOKEN`
 
 ### 4️⃣ Deploy! (15 min)
 
@@ -68,8 +79,8 @@ Add these 4 secrets:
 
 3. Click **"Run workflow"** → Select `deploy` → Click green **"Run workflow"** button
 
-4. Wait ~15 minutes. The workflow will:
-   - ✅ Analyze code quality (SonarQube)
+4. Wait ~27 minutes. The workflow will:
+   - ✅ Analyze code quality (SonarCloud)
    - ✅ Build Docker images
    - ✅ Deploy infrastructure (Terraform)
    - ✅ Run health checks
@@ -196,13 +207,13 @@ end2end-app/
 The GitHub Actions workflow automates the entire deployment:
 
 ```
-1. 🔍 Code Quality Analysis (SonarQube)
+1. 🔍 Code Quality Analysis (SonarCloud)
    ├─ Backend: Bugs, vulnerabilities, coverage
    └─ Frontend: Code smells, security, coverage
    
 2. 🔨 Build & Push Docker Images
-   ├─ Frontend: uo3d/burger-builder-frontend:latest
-   └─ Backend: uo3d/burger-builder-backend:latest
+   ├─ Frontend: your-dockerhub/burger-builder-frontend:latest
+   └─ Backend: your-dockerhub/burger-builder-backend:latest
    
 3. 🏗️ Deploy Infrastructure (Terraform)
    ├─ Virtual Network + Subnets
@@ -242,6 +253,157 @@ The GitHub Actions workflow automates the entire deployment:
 ### Health
 - `GET /actuator/health` - Application health status
 
+**Testing with curl**:
+```bash
+# Replace <GATEWAY_IP> with your Application Gateway IP
+
+# Test health endpoint
+curl http://<GATEWAY_IP>/actuator/health
+
+# Get all ingredients
+curl http://<GATEWAY_IP>/api/ingredients
+
+# Get ingredients by category
+curl http://<GATEWAY_IP>/api/ingredients/PROTEIN
+
+# Add item to cart (replace SESSION_ID with your session)
+curl -X POST http://<GATEWAY_IP>/api/cart/items \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "test-session-123",
+    "ingredientId": 1,
+    "quantity": 2
+  }'
+
+# Get cart contents
+curl http://<GATEWAY_IP>/api/cart/test-session-123
+
+# Place order
+curl -X POST http://<GATEWAY_IP>/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "test-session-123",
+    "customerName": "John Doe",
+    "deliveryAddress": "123 Main St"
+  }'
+
+# Get order history
+curl http://<GATEWAY_IP>/api/orders/history
+```
+
+**Testing with PowerShell**:
+```powershell
+# Test health endpoint
+Invoke-RestMethod -Uri "http://<GATEWAY_IP>/actuator/health" -Method Get
+
+# Get all ingredients
+Invoke-RestMethod -Uri "http://<GATEWAY_IP>/api/ingredients" -Method Get | ConvertTo-Json
+
+# Add item to cart
+$body = @{
+    sessionId = "test-session-123"
+    ingredientId = 1
+    quantity = 2
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://<GATEWAY_IP>/api/cart/items" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+---
+
+## ✅ Deployment Validation
+
+### Post-Deployment Checklist
+
+After deployment completes, validate the application is working correctly:
+
+#### 1. Check Deployment Status (2 min)
+```bash
+# Get resource group
+az group show --name naser-burger-builder-rg
+
+# Verify Container Apps are running
+az containerapp show --name frontend-app --resource-group naser-burger-builder-rg --query "properties.runningStatus"
+az containerapp show --name backend-app --resource-group naser-burger-builder-rg --query "properties.runningStatus"
+
+# Get Application Gateway IP
+az network public-ip show \
+  --resource-group naser-burger-builder-rg \
+  --name naser-burger-builder-appgw-pip \
+  --query ipAddress -o tsv
+```
+
+#### 2. Test Health Endpoints (1 min)
+```bash
+# Replace <GATEWAY_IP> with your actual IP
+GATEWAY_IP="<your-gateway-ip>"
+
+# Frontend health
+curl -I http://$GATEWAY_IP/
+
+# Backend health
+curl http://$GATEWAY_IP/actuator/health
+
+# Expected output: {"status":"UP"}
+```
+
+#### 3. Test API Endpoints (2 min)
+```bash
+# Test GET endpoint
+curl http://$GATEWAY_IP/api/ingredients | jq
+
+# Test POST endpoint (add to cart)
+curl -X POST http://$GATEWAY_IP/api/cart/items \
+  -H "Content-Type: application/json" \
+  -d '{"sessionId":"test-123","ingredientId":1,"quantity":2}' | jq
+
+# Verify cart
+curl http://$GATEWAY_IP/api/cart/test-123 | jq
+```
+
+#### 4. Test UI in Browser (2 min)
+1. Open `http://<GATEWAY_IP>/` in browser
+2. Click on ingredient categories
+3. Add items to burger
+4. Open cart and verify items appear
+5. Try placing an order
+
+#### 5. Check Application Gateway Health (1 min)
+```bash
+az network application-gateway show-backend-health \
+  --name naser-burger-builder-appgw \
+  --resource-group naser-burger-builder-rg \
+  --query "backendAddressPools[].backendHttpSettingsCollection[].servers[].health"
+
+# Expected output: All backends showing "Healthy"
+```
+
+#### 6. View Logs (1 min)
+```bash
+# Backend logs
+az containerapp logs show \
+  --name backend-app \
+  --resource-group naser-burger-builder-rg \
+  --tail 50
+
+# Frontend logs
+az containerapp logs show \
+  --name frontend-app \
+  --resource-group naser-burger-builder-rg \
+  --tail 50
+```
+
+### Expected Results
+- ✅ All Container Apps in "Running" state
+- ✅ Health endpoints return HTTP 200
+- ✅ API returns valid JSON responses
+- ✅ UI loads and is interactive
+- ✅ Application Gateway shows all backends "Healthy"
+- ✅ No errors in container logs
+
 ---
 
 ## 🔒 Security Features
@@ -251,7 +413,7 @@ The GitHub Actions workflow automates the entire deployment:
 - **CORS Protection**: Backend only accepts configured origins
 - **Auto-scaling**: 1-10 instances based on load
 - **Health Monitoring**: Automatic health checks and failover
-- **Code Scanning**: SonarQube security analysis on every deploy
+- **Code Scanning**: SonarCloud security analysis on every deploy
 
 ---
 
@@ -318,12 +480,13 @@ npm run test:coverage
 open coverage/index.html
 ```
 
-### Quality Metrics (from SonarQube)
+### Quality Metrics (from SonarCloud)
 - **Bugs**: 0 tolerance policy
 - **Vulnerabilities**: Security issues detected and fixed
 - **Code Coverage**: Target >70%
 - **Code Smells**: Maintainability issues tracked
 - **Duplication**: <3% code duplication
+- **Dashboard**: View detailed reports at https://sonarcloud.io
 
 ---
 
@@ -404,7 +567,7 @@ docker-compose logs backend
 ### Deployment fails
 ```bash
 # Check GitHub Actions logs
-# Verify all 4 secrets are configured correctly
+# Verify all 5 secrets are configured correctly
 # Ensure Azure service principal has Contributor role
 # Check Docker Hub token has push permissions
 ```
@@ -446,7 +609,7 @@ docker-compose logs backend
 - **Virtual Network** - Network isolation
 - **Terraform** - Infrastructure as Code
 - **GitHub Actions** - CI/CD pipeline
-- **SonarQube** - Code quality analysis
+- **SonarCloud** - Code quality analysis
 
 ---
 
@@ -458,7 +621,7 @@ docker-compose logs backend
 4. Push to branch: `git push origin feature/amazing-feature`
 5. Open Pull Request
 
-**Code Quality**: All PRs must pass SonarQube quality gates.
+**Code Quality**: All PRs must pass SonarCloud quality gates.
 
 ---
 
@@ -472,7 +635,7 @@ This project is part of a capstone project for educational purposes.
 
 - **Deployment Issues**: Check GitHub Actions logs in the Actions tab
 - **Infrastructure Issues**: Review Terraform outputs and Azure Portal
-- **Code Issues**: Run tests locally and check SonarQube reports
+- **Code Issues**: Run tests locally and check SonarCloud reports at https://sonarcloud.io
 - **Database Issues**: Verify connection strings and private endpoint configuration
 
 ---
